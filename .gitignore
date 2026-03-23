@@ -1,0 +1,21 @@
+# Environment variables — never commit this
+.env
+
+# Sessions — contain user data, regenerated at runtime
+sessions/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# VS Code
+.vscode/
+
+# Config (if still present)
+config.py
