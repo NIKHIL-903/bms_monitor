@@ -3,3 +3,4 @@ curl_cffi
 python-telegram-bot==20.7
 apscheduler
 python-dotenv
+python-3.11
