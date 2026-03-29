@@ -9,7 +9,7 @@ from app.utils import fetch_initial_state, format_date, is_date_open, send
 
 
 async def check_level1(bot, uid):
-    cfg = get_cfg(uid)
+    cfg   = get_cfg(uid)
     state = get_state(uid)
 
     if state["level1_done"] or not state["running"]:
@@ -17,7 +17,29 @@ async def check_level1(bot, uid):
     log.info(f"[{uid}] Checking Level 1...")
 
     data = fetch_initial_state(cfg)
-    if not data or not is_date_open(data, cfg):
+    if not data:
+        log.info(f"[{uid}] Level 1: Fetch returned None")
+        return
+
+    # DEBUG — log what BMS actually returned
+    show_dates   = data.get("showtimesByEvent", {}).get("showDates", {})
+    current_date = data.get("showtimesByEvent", {}).get("currentDateCode", "")
+    log.info(f"[{uid}] DEBUG currentDateCode: {current_date}")
+    log.info(f"[{uid}] DEBUG showDates keys: {list(show_dates.keys())}")
+
+    # Check showDateCode inside shows
+    for date_key, date_val in show_dates.items():
+        widgets = date_val.get("dynamic", {}).get("data", {}).get("showtimeWidgets", [])
+        for widget in widgets:
+            if widget.get("type") != "groupList":
+                continue
+            for group in widget.get("data", []):
+                for venue in group.get("data", []):
+                    for show in venue.get("showtimes", []):
+                        show_date_code = show.get("additionalData", {}).get("showDateCode", "")
+                        log.info(f"[{uid}] DEBUG show: {show.get('title')} | showDateCode: {show_date_code}")
+
+    if not is_date_open(data, cfg):
         log.info(f"[{uid}] Level 1: {cfg['target_date']} not open yet")
         return
 
@@ -39,7 +61,7 @@ async def check_level1(bot, uid):
 
 
 async def check_level2(bot, uid):
-    cfg = get_cfg(uid)
+    cfg   = get_cfg(uid)
     state = get_state(uid)
 
     if not state["level1_done"] or state["level2_done"] or not state["running"]:
@@ -63,10 +85,10 @@ async def check_level2(bot, uid):
             .get("showtimeWidgets", [])
         )
 
-        venue_name = None
-        session_id = None
+        venue_name  = None
+        session_id  = None
         venue_found = False
-        show_found = False
+        show_found  = False
 
         for widget in widgets:
             if widget.get("type") != "groupList":
@@ -76,7 +98,7 @@ async def check_level2(bot, uid):
                     if venue.get("additionalData", {}).get("venueCode", "") != cfg["venue_code"]:
                         continue
                     venue_found = True
-                    venue_name = venue.get("additionalData", {}).get("venueName", cfg["venue_code"])
+                    venue_name  = venue.get("additionalData", {}).get("venueName", cfg["venue_code"])
 
                     if not cfg["target_show"]:
                         show_found = True
@@ -95,17 +117,16 @@ async def check_level2(bot, uid):
 
         if venue_found and not state["venue_notified"]:
             state["venue_notified"] = True
-            state["venue_name"] = venue_name
+            state["venue_name"]     = venue_name
 
             if show_found:
-                state["session_id"] = session_id
+                state["session_id"]  = session_id
                 state["level2_done"] = True
 
                 if not cfg["target_seats"]:
                     if cfg["target_show"]:
                         await send(
-                            bot,
-                            uid,
+                            bot, uid,
                             f"🟢 {venue_name} is open!\n"
                             f"🎬 {cfg['target_show']} show is live on {date_str}",
                         )
@@ -114,8 +135,7 @@ async def check_level2(bot, uid):
                     state["level3_done"] = True
                 else:
                     await send(
-                        bot,
-                        uid,
+                        bot, uid,
                         f"🟢 {venue_name} is open!\n"
                         f"🎬 {cfg['target_show']} show is live on {date_str}\n"
                         f"🔍 Checking seats {', '.join(cfg['target_seats'])}...",
@@ -123,8 +143,7 @@ async def check_level2(bot, uid):
                     await check_level3(bot, uid)
             else:
                 await send(
-                    bot,
-                    uid,
+                    bot, uid,
                     f"🟢 {venue_name} is open on {date_str}!\n"
                     f"⏳ Waiting for {cfg['target_show']} show...",
                 )
@@ -142,20 +161,18 @@ async def check_level2(bot, uid):
                                 continue
                             if show.get("title", "").strip() == cfg["target_show"].strip():
                                 session_id = show.get("additionalData", {}).get("sessionId")
-                                state["session_id"] = session_id
+                                state["session_id"]  = session_id
                                 state["level2_done"] = True
 
                                 if not cfg["target_seats"]:
                                     await send(
-                                        bot,
-                                        uid,
+                                        bot, uid,
                                         f"🟢 {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!",
                                     )
                                     state["level3_done"] = True
                                 else:
                                     await send(
-                                        bot,
-                                        uid,
+                                        bot, uid,
                                         f"🟢 {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!\n"
                                         f"🔍 Checking seats {', '.join(cfg['target_seats'])}...",
                                     )
@@ -170,7 +187,7 @@ async def check_level2(bot, uid):
 
 
 async def check_level3(bot, uid):
-    cfg = get_cfg(uid)
+    cfg   = get_cfg(uid)
     state = get_state(uid)
 
     if not state["level2_done"] or state["level3_done"] or not state["running"]:
@@ -190,8 +207,7 @@ async def check_level3(bot, uid):
         if res.status_code in (301, 302):
             log.info(f"[{uid}] Level 3: Redirected - not available yet")
             await send(
-                bot,
-                uid,
+                bot, uid,
                 f"🟡 {state['venue_name']} • {cfg['target_show']} is live on {date_str}\n"
                 f"💺 Seats {', '.join(cfg['target_seats'])} not available yet\n"
                 f"🔄 Checking every {cfg['freq_l3']} mins...",
@@ -208,31 +224,28 @@ async def check_level3(bot, uid):
             return
 
         layout_str = json.dumps(json.loads(match.group(1)))
-        found = [seat for seat in cfg["target_seats"] if seat in layout_str]
-        missing = [seat for seat in cfg["target_seats"] if seat not in layout_str]
-        show_part = f" • {cfg['target_show']}" if cfg["target_show"] else ""
+        found      = [seat for seat in cfg["target_seats"] if seat in layout_str]
+        missing    = [seat for seat in cfg["target_seats"] if seat not in layout_str]
+        show_part  = f" • {cfg['target_show']}" if cfg["target_show"] else ""
 
         if found and not missing:
             state["level3_done"] = True
             await send(
-                bot,
-                uid,
+                bot, uid,
                 f"🟢 {state['venue_name']}{show_part} on {date_str}\n"
                 f"💺 Seats {', '.join(found)} are available!\n"
                 f"🔗 {url}",
             )
         elif found:
             await send(
-                bot,
-                uid,
+                bot, uid,
                 f"🟡 {state['venue_name']}{show_part} on {date_str}\n"
                 f"💺 {', '.join(found)} available | {', '.join(missing)} not yet\n"
                 f"🔗 {url}",
             )
         else:
             await send(
-                bot,
-                uid,
+                bot, uid,
                 f"🟡 {state['venue_name']}{show_part} is live on {date_str}\n"
                 f"💺 Seats {', '.join(cfg['target_seats'])} not available yet\n"
                 f"🔄 Checking every {cfg['freq_l3']} mins...",
