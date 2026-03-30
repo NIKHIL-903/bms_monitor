@@ -1,5 +1,4 @@
 # Environment variables — never commit this
-.env
 
 # Sessions — contain user data, regenerated at runtime
 sessions/
@@ -12,7 +11,7 @@ __pycache__/
 # Virtual environment
 .venv/
 venv/
-env/
+
 
 # VS Code
 .vscode/
