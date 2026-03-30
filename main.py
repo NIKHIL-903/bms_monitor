@@ -1,3 +1,6 @@
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')  
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
