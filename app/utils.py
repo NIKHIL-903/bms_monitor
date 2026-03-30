@@ -1,12 +1,10 @@
-import json
-import re
 from datetime import datetime
-
-from curl_cffi import requests
+from playwright.async_api import async_playwright
 
 from app.settings import log
 
 
+# âœ… Format date for messages
 def format_date(date_str):
     try:
         parsed = datetime.strptime(date_str, "%Y%m%d")
@@ -15,48 +13,47 @@ def format_date(date_str):
         return date_str
 
 
-def fetch_initial_state(cfg):
+# âœ… Fetch BMS page using async Playwright (Cloudflare bypass)
+async def fetch_initial_state(cfg):
     url = (
         f"https://in.bookmyshow.com/movies/{cfg['region']}/"
         f"{cfg['movie_slug']}/buytickets/{cfg['event_code']}/{cfg['target_date']}"
     )
+
     try:
-        res = requests.get(url, impersonate="chrome120", timeout=10)
-        match = re.search(
-            r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\})(?=</script>)",
-            res.text,
-            re.DOTALL,
-        )
-        if match:
-            return json.loads(match.group(1))
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            await page.goto(url, timeout=60000)
+            await page.wait_for_function(
+                "window.__INITIAL_STATE__ !== undefined",
+                timeout=15000
+            )
+            data = await page.evaluate("window.__INITIAL_STATE__")
+            await browser.close()
+
+        return data
+
     except Exception as exc:
         log.error(f"Fetch error: {exc}")
-    return None
+        return None
 
 
-def is_date_open(data, cfg):
+# âœ… Check if correct date is actually open
+def is_date_open(data, target_date):
     try:
-        widgets = (
-            data["showtimesByEvent"]["showDates"]
-            .get(cfg["target_date"], {})
-            .get("dynamic", {})
-            .get("data", {})
-            .get("showtimeWidgets", [])
-        )
-        for widget in widgets:
-            if widget.get("type") != "groupList":
-                continue
-            for group in widget.get("data", []):
-                for venue in group.get("data", []):
-                    for show in venue.get("showtimes", []):
-                        show_date = show.get("additionalData", {}).get("showDateCode", "")
-                        if show_date == cfg["target_date"]:
-                            return True
-        return False
-    except Exception:
+        show_dates = data.get("showtimesByEvent", {}).get("showDates", {})
+        return target_date in show_dates
+
+    except Exception as e:
+        log.error(f"is_date_open error: {e}")
         return False
 
 
-async def send(bot, chat_id, message):
-    await bot.send_message(chat_id=chat_id, text=message)
-    log.info(f"[{chat_id}] Sent: {message[:80]}")
+# âœ… Send message wrapper (used everywhere)
+async def send(bot, chat_id, text):
+    try:
+        await bot.send_message(chat_id=chat_id, text=text)
+    except Exception as e:
+        log.error(f"Send error: {e}")

@@ -1,7 +1,4 @@
-import json
-import re
-
-from curl_cffi import requests
+from playwright.async_api import async_playwright
 
 from app.settings import log
 from app.state import get_cfg, get_state
@@ -16,12 +13,14 @@ async def check_level1(bot, uid):
         return
     log.info(f"[{uid}] Checking Level 1...")
 
-    data = fetch_initial_state(cfg)
+    data = await fetch_initial_state(cfg)
     if not data:
         log.info(f"[{uid}] Level 1: Fetch returned None")
         return
 
-    # DEBUG — log what BMS actually returned
+    log.info(f"[{uid}] TOP LEVEL KEYS: {list(data.keys())}")
+
+    # DEBUG â€” log what BMS actually returned
     show_dates   = data.get("showtimesByEvent", {}).get("showDates", {})
     current_date = data.get("showtimesByEvent", {}).get("currentDateCode", "")
     log.info(f"[{uid}] DEBUG currentDateCode: {current_date}")
@@ -39,7 +38,7 @@ async def check_level1(bot, uid):
                         show_date_code = show.get("additionalData", {}).get("showDateCode", "")
                         log.info(f"[{uid}] DEBUG show: {show.get('title')} | showDateCode: {show_date_code}")
 
-    if not is_date_open(data, cfg):
+    if not is_date_open(data, cfg["target_date"]):
         log.info(f"[{uid}] Level 1: {cfg['target_date']} not open yet")
         return
 
@@ -47,15 +46,15 @@ async def check_level1(bot, uid):
     date_str = format_date(cfg["target_date"])
 
     if not cfg["venue_code"]:
-        await send(bot, uid, f"🟢 Bookings open for {cfg['movie_slug']} on {date_str}")
+        await send(bot, uid, f"ðŸŸ¢ Bookings open for {cfg['movie_slug']} on {date_str}")
         state["level2_done"] = True
         state["level3_done"] = True
     else:
         await send(
             bot,
             uid,
-            f"🟢 Bookings open for {cfg['movie_slug']} on {date_str}\n"
-            f"🔍 Searching for {cfg['venue_code']}...",
+            f"ðŸŸ¢ Bookings open for {cfg['movie_slug']} on {date_str}\n"
+            f"ðŸ” Searching for {cfg['venue_code']}...",
         )
         await check_level2(bot, uid)
 
@@ -70,8 +69,8 @@ async def check_level2(bot, uid):
         return
     log.info(f"[{uid}] Checking Level 2...")
 
-    data = fetch_initial_state(cfg)
-    if not data or not is_date_open(data, cfg):
+    data = await fetch_initial_state(cfg)
+    if not data or not is_date_open(data, cfg["target_date"]):
         return
 
     date_str = format_date(cfg["target_date"])
@@ -127,25 +126,25 @@ async def check_level2(bot, uid):
                     if cfg["target_show"]:
                         await send(
                             bot, uid,
-                            f"🟢 {venue_name} is open!\n"
-                            f"🎬 {cfg['target_show']} show is live on {date_str}",
+                            f"ðŸŸ¢ {venue_name} is open!\n"
+                            f"ðŸŽ¬ {cfg['target_show']} show is live on {date_str}",
                         )
                     else:
-                        await send(bot, uid, f"🟢 {venue_name} is open on {date_str}!")
+                        await send(bot, uid, f"ðŸŸ¢ {venue_name} is open on {date_str}!")
                     state["level3_done"] = True
                 else:
                     await send(
                         bot, uid,
-                        f"🟢 {venue_name} is open!\n"
-                        f"🎬 {cfg['target_show']} show is live on {date_str}\n"
-                        f"🔍 Checking seats {', '.join(cfg['target_seats'])}...",
+                        f"ðŸŸ¢ {venue_name} is open!\n"
+                        f"ðŸŽ¬ {cfg['target_show']} show is live on {date_str}\n"
+                        f"ðŸ” Checking seats {', '.join(cfg['target_seats'])}...",
                     )
                     await check_level3(bot, uid)
             else:
                 await send(
                     bot, uid,
-                    f"🟢 {venue_name} is open on {date_str}!\n"
-                    f"⏳ Waiting for {cfg['target_show']} show...",
+                    f"ðŸŸ¢ {venue_name} is open on {date_str}!\n"
+                    f"â³ Waiting for {cfg['target_show']} show...",
                 )
 
         elif venue_found and state["venue_notified"] and not state["level2_done"]:
@@ -167,14 +166,14 @@ async def check_level2(bot, uid):
                                 if not cfg["target_seats"]:
                                     await send(
                                         bot, uid,
-                                        f"🟢 {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!",
+                                        f"ðŸŸ¢ {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!",
                                     )
                                     state["level3_done"] = True
                                 else:
                                     await send(
                                         bot, uid,
-                                        f"🟢 {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!\n"
-                                        f"🔍 Checking seats {', '.join(cfg['target_seats'])}...",
+                                        f"ðŸŸ¢ {state['venue_name']} - {cfg['target_show']} is now live on {date_str}!\n"
+                                        f"ðŸ” Checking seats {', '.join(cfg['target_seats'])}...",
                                     )
                                     await check_level3(bot, uid)
                                 return
@@ -203,52 +202,47 @@ async def check_level3(bot, uid):
     )
 
     try:
-        res = requests.get(url, impersonate="chrome120", timeout=10, allow_redirects=False)
-        if res.status_code in (301, 302):
-            log.info(f"[{uid}] Level 3: Redirected - not available yet")
-            await send(
-                bot, uid,
-                f"🟡 {state['venue_name']} • {cfg['target_show']} is live on {date_str}\n"
-                f"💺 Seats {', '.join(cfg['target_seats'])} not available yet\n"
-                f"🔄 Checking every {cfg['freq_l3']} mins...",
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, timeout=60000)
+            await page.wait_for_function(
+                "window.__INITIAL_STATE__ !== undefined",
+                timeout=15000
             )
+            layout_data = await page.evaluate("window.__INITIAL_STATE__")
+            await browser.close()
+
+        if not layout_data:
+            log.info(f"[{uid}] Level 3: Could not load seat layout")
             return
 
-        match = re.search(
-            r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\})(?=</script>)",
-            res.text,
-            re.DOTALL,
-        )
-        if not match:
-            log.info(f"[{uid}] Level 3: Could not parse seat layout")
-            return
-
-        layout_str = json.dumps(json.loads(match.group(1)))
+        layout_str = str(layout_data)
         found      = [seat for seat in cfg["target_seats"] if seat in layout_str]
         missing    = [seat for seat in cfg["target_seats"] if seat not in layout_str]
-        show_part  = f" • {cfg['target_show']}" if cfg["target_show"] else ""
+        show_part  = f" â€¢ {cfg['target_show']}" if cfg["target_show"] else ""
 
         if found and not missing:
             state["level3_done"] = True
             await send(
                 bot, uid,
-                f"🟢 {state['venue_name']}{show_part} on {date_str}\n"
-                f"💺 Seats {', '.join(found)} are available!\n"
-                f"🔗 {url}",
+                f"ðŸŸ¢ {state['venue_name']}{show_part} on {date_str}\n"
+                f"ðŸ’º Seats {', '.join(found)} are available!\n"
+                f"ðŸ”— {url}",
             )
         elif found:
             await send(
                 bot, uid,
-                f"🟡 {state['venue_name']}{show_part} on {date_str}\n"
-                f"💺 {', '.join(found)} available | {', '.join(missing)} not yet\n"
-                f"🔗 {url}",
+                f"ðŸŸ¡ {state['venue_name']}{show_part} on {date_str}\n"
+                f"ðŸ’º {', '.join(found)} available | {', '.join(missing)} not yet\n"
+                f"ðŸ”— {url}",
             )
         else:
             await send(
                 bot, uid,
-                f"🟡 {state['venue_name']}{show_part} is live on {date_str}\n"
-                f"💺 Seats {', '.join(cfg['target_seats'])} not available yet\n"
-                f"🔄 Checking every {cfg['freq_l3']} mins...",
+                f"ðŸŸ¡ {state['venue_name']}{show_part} is live on {date_str}\n"
+                f"ðŸ’º Seats {', '.join(cfg['target_seats'])} not available yet\n"
+                f"ðŸ”„ Checking every {cfg['freq_l3']} mins...",
             )
 
     except Exception as exc:
